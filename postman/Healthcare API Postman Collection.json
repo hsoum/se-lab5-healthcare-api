@@ -1,0 +1,1043 @@
+{
+  "info": {
+    "name": "Healthcare API Tests",
+    "description": "# Healthcare API Tests\n\nPostman tests and documentation for the Healthcare REST API of our Full DevOps Lab project (Express, Node.js). The API manages doctors, patients and appointments, and reports metrics. Data is kept in memory: it resets when the server restarts.\n\n## Getting started\n\n1. `npm install` once (the repository's `.npmrc` sets `legacy-peer-deps`), then `npm run dev`. The server listens on `http://localhost:3000`.\n2. Import this file in Postman (*Import*). There is no environment or variable to set: every request carries its full address, `http://localhost:3000/api/...`.\n3. *Run collection* in order: later requests reuse the ids saved by earlier ones, and the metrics check compares counts taken before the POST requests, so the run can be repeated on the same server.\n\nThe folder **Lab 5 requests** holds the 8 requests of the lab. The folder **Error cases** has one request for each other documented error, each with its saved answer.\n\nFrom the command line: `npx newman run \"postman/Healthcare API Postman Collection.json\"`.\n\n## Conventions\n\n| Topic | Rule |\n|---|---|\n| Format | JSON in and out; send `Content-Type: application/json` with a body. |\n| Ids | Whole numbers given by the server: one more than the highest id in the list. |\n| Dates | `YYYY-MM-DD`, and a real calendar day (`2026-02-30` is refused). |\n| Authentication | None in this lab. |\n\n## Errors\n\n| HTTP | Body | When |\n|---|---|---|\n| 400 | `{ \"error\": \"Missing required fields\" }` | A required field is absent, `null` or empty. `0` counts as present. |\n| 400 | `{ \"error\": \"<field> must be …\" }` | A field is present but has the wrong form (age, date). |\n| 400 | `{ \"error\": true, \"message\": \"…\" }` | The body is not valid JSON (global error handler). |\n| 404 | `{ \"error\": \"Doctor or patient not found\" }` | An appointment names an id that does not exist. |\n| 500 | `{ \"error\": true, \"message\": \"…\" }` | Unexpected server error (global error handler). |\n\n## Endpoints\n\n| Method | Path | Purpose |\n|---|---|---|\n| GET | /api/doctors | List the doctors |\n| POST | /api/doctors | Add a doctor |\n| GET | /api/patients | List the patients |\n| POST | /api/patients | Add a patient |\n| GET | /api/appointments | List the appointments |\n| POST | /api/appointments | Book a visit between a doctor and a patient |\n| GET | /api/metrics | Hospital counts and system stats |\n\nEvery request below has tests (*Scripts → Post-response*): the status code, the shape of the answer and the rule it documents. Each request also has a saved example response from a real run.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Lab 5 requests",
+      "description": "The 8 requests the lab asks for, in the order of the deposit list.",
+      "item": [
+        {
+          "name": "GET /api/doctors",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200)); // the documented status code",
+                  "pm.test(\"Response is an array\", () => pm.expect(pm.response.json()).to.be.an(\"array\")); // a list",
+                  "pm.test(\"Each doctor has id, name and specialty\", () => pm.response.json().forEach((d) => pm.expect(d).to.have.all.keys(\"id\", \"name\", \"specialty\"))); // same shape for all",
+                  "pm.collectionVariables.set(\"doctorsBefore\", pm.response.json().length); // count before the POST, for the metrics check"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/doctors",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "doctors"
+              ]
+            },
+            "description": "Returns every doctor as an array of `{ id, name, specialty }`. The server starts with two: Dr. Sarah Lee (Cardiology) and Dr. Amir Khan (Pediatrics).\n\n**200** the list."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:3000/api/doctors",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "doctors"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "[\n  {\n    \"id\": 1,\n    \"name\": \"Dr. Sarah Lee\",\n    \"specialty\": \"Cardiology\"\n  },\n  {\n    \"id\": 2,\n    \"name\": \"Dr. Amir Khan\",\n    \"specialty\": \"Pediatrics\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/doctors",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 201\", () => pm.response.to.have.status(201)); // the documented status code",
+                  "const d = pm.response.json(); // the new doctor",
+                  "pm.test(\"Doctor has an id\", () => pm.expect(d.id).to.be.a(\"number\")); // given by the server",
+                  "pm.test(\"Fields are stored as sent\", () => pm.expect(d).to.include({ name: \"Dr. Julie\", specialty: \"Neurology\" })); // nothing changed",
+                  "pm.collectionVariables.set(\"doctorId\", d.id); // used by the appointment"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dr. Julie\",\n  \"specialty\": \"Neurology\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/doctors",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "doctors"
+              ]
+            },
+            "description": "Adds a doctor.\n\n| Field | Rule |\n|---|---|\n| `name` | Required text. |\n| `specialty` | Required text. |\n\nOther fields are ignored. **201** the new doctor with its `id` · **400** `Missing required fields`."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Dr. Julie\",\n  \"specialty\": \"Neurology\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:3000/api/doctors",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "doctors"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"id\": 3,\n  \"name\": \"Dr. Julie\",\n  \"specialty\": \"Neurology\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/patients",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200)); // the documented status code",
+                  "pm.test(\"Response is an array\", () => pm.expect(pm.response.json()).to.be.an(\"array\")); // a list",
+                  "pm.test(\"Each patient has id, name and age\", () => pm.response.json().forEach((p) => pm.expect(p).to.have.all.keys(\"id\", \"name\", \"age\"))); // same shape for all",
+                  "pm.collectionVariables.set(\"patientsBefore\", pm.response.json().length); // count before the POST"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/patients",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "patients"
+              ]
+            },
+            "description": "Returns every patient as an array of `{ id, name, age }`. The server starts with Alice (30) and John (45).\n\n**200** the list."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:3000/api/patients",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "patients"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "[\n  {\n    \"id\": 1,\n    \"name\": \"Alice\",\n    \"age\": 30\n  },\n  {\n    \"id\": 2,\n    \"name\": \"John\",\n    \"age\": 45\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/patients",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 201\", () => pm.response.to.have.status(201)); // the documented status code",
+                  "const p = pm.response.json(); // the new patient",
+                  "pm.test(\"Patient has an id\", () => pm.expect(p.id).to.be.a(\"number\")); // given by the server",
+                  "pm.test(\"Fields are stored as sent\", () => pm.expect(p).to.include({ name: \"Marie\", age: 29 })); // nothing changed",
+                  "pm.collectionVariables.set(\"patientId\", p.id); // used by the appointment"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Marie\",\n  \"age\": 29\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/patients",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "patients"
+              ]
+            },
+            "description": "Adds a patient.\n\n| Field | Rule |\n|---|---|\n| `name` | Required text. |\n| `age` | Required whole number from 0 to 130; `0` (a newborn) is accepted. |\n\n**201** the new patient · **400** `Missing required fields`, or `age must be a whole number from 0 to 130`."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Marie\",\n  \"age\": 29\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:3000/api/patients",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "patients"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"id\": 3,\n  \"name\": \"Marie\",\n  \"age\": 29\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/appointments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200)); // the documented status code",
+                  "pm.test(\"Response is an array\", () => pm.expect(pm.response.json()).to.be.an(\"array\")); // a list",
+                  "pm.test(\"Each appointment links a doctor and a patient\", () => pm.response.json().forEach((a) => pm.expect(a).to.have.all.keys(\"id\", \"doctorId\", \"patientId\", \"date\"))); // same shape for all",
+                  "pm.collectionVariables.set(\"appointmentsBefore\", pm.response.json().length); // count before the POST"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/appointments",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "appointments"
+              ]
+            },
+            "description": "Returns every appointment as an array of `{ id, doctorId, patientId, date }`. The server starts with one visit: doctor 1 and patient 1 on 2026-11-10.\n\n**200** the list."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:3000/api/appointments",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "appointments"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "[\n  {\n    \"id\": 1,\n    \"doctorId\": 1,\n    \"patientId\": 1,\n    \"date\": \"2026-11-10\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/appointments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 201\", () => pm.response.to.have.status(201)); // the documented status code",
+                  "const a = pm.response.json(); // the new appointment",
+                  "pm.test(\"Appointment has an id\", () => pm.expect(a.id).to.be.a(\"number\")); // given by the server",
+                  "pm.test(\"Links the doctor and the patient created above\", () => pm.expect(a).to.include({ doctorId: Number(pm.collectionVariables.get(\"doctorId\")), patientId: Number(pm.collectionVariables.get(\"patientId\")), date: \"2026-11-20\" })); // the saved ids"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"doctorId\": {{doctorId}},\n  \"patientId\": {{patientId}},\n  \"date\": \"2026-11-20\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/appointments",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "appointments"
+              ]
+            },
+            "description": "Books a visit between an existing doctor and an existing patient. This request uses the ids saved by the two POST requests above.\n\n| Field | Rule |\n|---|---|\n| `doctorId` | Required; the id of an existing doctor. |\n| `patientId` | Required; the id of an existing patient. |\n| `date` | Required; a real day written `YYYY-MM-DD`. |\n\n**201** the new appointment · **400** `Missing required fields`, or `date must be a real day written YYYY-MM-DD` · **404** `Doctor or patient not found`."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"doctorId\": 3,\n  \"patientId\": 3,\n  \"date\": \"2026-11-20\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:3000/api/appointments",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "appointments"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"id\": 2,\n  \"doctorId\": 3,\n  \"patientId\": 3,\n  \"date\": \"2026-11-20\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200)); // the documented status code",
+                  "const m = pm.response.json(); // the stats",
+                  "const before = (key) => Number(pm.collectionVariables.get(key)); // counts saved by the GET requests",
+                  "pm.test(\"Counts include the three POSTs\", () => pm.expect(m.hospital).to.eql({ doctors: before(\"doctorsBefore\") + 1, patients: before(\"patientsBefore\") + 1, appointments: before(\"appointmentsBefore\") + 1 })); // one more of each",
+                  "pm.test(\"System stats are present\", () => { pm.expect(m.system.node).to.match(/^v\\d+/); pm.expect(m.system.uptime).to.be.a(\"number\"); }); // Node version and uptime"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/metrics",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "metrics"
+              ]
+            },
+            "description": "Returns two groups of numbers:\n\n| Field | Content |\n|---|---|\n| `hospital.doctors`, `hospital.patients`, `hospital.appointments` | How many of each the API stores right now. |\n| `system.node` | Node.js version of the server. |\n| `system.uptime` | Seconds since the server started. |\n\n**200** the metrics."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:3000/api/metrics",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "metrics"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"hospital\": {\n    \"doctors\": 3,\n    \"patients\": 3,\n    \"appointments\": 2\n  },\n  \"system\": {\n    \"node\": \"v22.17.0\",\n    \"uptime\": 1.371808812\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/doctors with a missing field",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", () => pm.response.to.have.status(400)); // the documented status code",
+                  "pm.test(\"Error message names the problem\", () => pm.expect(pm.response.json()).to.eql({ error: \"Missing required fields\" })); // what the client shows",
+                  "pm.sendRequest(\"http://localhost:3000/api/doctors\", (err, res) => { // read the list again",
+                  "  pm.test(\"Nothing was added\", () => pm.expect(err ? null : res.json().some((d) => d.name === \"Dr. No Specialty\")).to.eql(false)); // the refused doctor is not there",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dr. No Specialty\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/doctors",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "doctors"
+              ]
+            },
+            "description": "`specialty` is missing, so the server answers **400** `{ \"error\": \"Missing required fields\" }` and stores nothing. The second test reads the list again to prove it."
+          },
+          "response": [
+            {
+              "name": "400 Bad Request",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Dr. No Specialty\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:3000/api/doctors",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "doctors"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"error\": \"Missing required fields\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Error cases",
+      "description": "One request for each other documented error. None of them stores anything.",
+      "item": [
+        {
+          "name": "POST /api/patients with an invalid age",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", () => pm.response.to.have.status(400)); // the documented status code",
+                  "pm.test(\"Error message names the rule\", () => pm.expect(pm.response.json()).to.eql({ error: \"age must be a whole number from 0 to 130\" })); // says what to fix"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bad Age\",\n  \"age\": \"thirty\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/patients",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "patients"
+              ]
+            },
+            "description": "`age` is present but is text, so the server answers **400** with the rule. A decimal (`29.5`), a negative number or more than 130 get the same answer; `0` is accepted."
+          },
+          "response": [
+            {
+              "name": "400 Bad Request",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Bad Age\",\n  \"age\": \"thirty\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:3000/api/patients",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "patients"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"error\": \"age must be a whole number from 0 to 130\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/appointments with a wrong date format",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", () => pm.response.to.have.status(400)); // the documented status code",
+                  "pm.test(\"Error message names the rule\", () => pm.expect(pm.response.json()).to.eql({ error: \"date must be a real day written YYYY-MM-DD\" })); // one unambiguous format"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"doctorId\": 1,\n  \"patientId\": 1,\n  \"date\": \"20/11/2026\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/appointments",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "appointments"
+              ]
+            },
+            "description": "A day-first date (`20/11/2026`) is refused with **400**: only `YYYY-MM-DD` is accepted, and the day must exist (`2026-02-30` is refused too)."
+          },
+          "response": [
+            {
+              "name": "400 Bad Request",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"doctorId\": 1,\n  \"patientId\": 1,\n  \"date\": \"20/11/2026\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:3000/api/appointments",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "appointments"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"error\": \"date must be a real day written YYYY-MM-DD\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/appointments with an unknown doctor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 404\", () => pm.response.to.have.status(404)); // the documented status code",
+                  "pm.test(\"Error message says what is missing\", () => pm.expect(pm.response.json()).to.eql({ error: \"Doctor or patient not found\" })); // a wrong reference, not a wrong format"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"doctorId\": 999,\n  \"patientId\": 1,\n  \"date\": \"2026-11-20\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/appointments",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "appointments"
+              ]
+            },
+            "description": "The format is right but doctor 999 does not exist, so the answer is **404**, not 400: the request is well written, it points at something that is not there."
+          },
+          "response": [
+            {
+              "name": "404 Not Found",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"doctorId\": 999,\n  \"patientId\": 1,\n  \"date\": \"2026-11-20\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:3000/api/appointments",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "appointments"
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"error\": \"Doctor or patient not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/doctors with broken JSON",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", () => pm.response.to.have.status(400)); // the documented status code",
+                  "pm.test(\"Global error handler answers in JSON\", () => { pm.expect(pm.response.json().error).to.eql(true); pm.expect(pm.response.json().message).to.be.a(\"string\"); }); // { error: true, message }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dr. Broken\",\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/doctors",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "doctors"
+              ]
+            },
+            "description": "The body is cut off, so `express.json()` cannot read it. The global error handler answers **400** `{ \"error\": true, \"message\": \"…\" }` before the route runs."
+          },
+          "response": [
+            {
+              "name": "400 Bad Request",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Dr. Broken\",\n",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:3000/api/doctors",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "doctors"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"error\": true,\n  \"message\": \"Expected double-quoted property name in JSON at position 26 (line 3 column 1)\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "doctorId",
+      "value": ""
+    },
+    {
+      "key": "patientId",
+      "value": ""
+    },
+    {
+      "key": "doctorsBefore",
+      "value": ""
+    },
+    {
+      "key": "patientsBefore",
+      "value": ""
+    },
+    {
+      "key": "appointmentsBefore",
+      "value": ""
+    }
+  ]
+}
